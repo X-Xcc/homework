@@ -1,0 +1,374 @@
+from fastapi import APIRouter, HTTPException, Depends, Body, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, desc
+from typing import Optional
+import uuid
+
+from app.models.database import get_db, UserDB, FavoriteDB, AnalysisDB, ChatSessionDB, ComparisonDB
+from app.api.deps import get_current_user, get_or_create_user_by_client_id
+
+def compute_overall_risk_level(risks):
+    if any((risk or {}).get("level") == "high" for risk in risks or []):
+        return "high"
+    if any((risk or {}).get("level") == "medium" for risk in risks or []):
+        return "medium"
+    return "low"
+
+
+def compute_overall_score(risks):
+    penalty = 0
+    for risk in risks or []:
+        level = (risk or {}).get("level")
+        if level == "high":
+            penalty += 25
+        elif level == "medium":
+            penalty += 12
+        else:
+            penalty += 5
+    return max(20, 100 - penalty)
+
+
+router = APIRouter(prefix="/api/user", tags=["user"])
+
+
+@router.post("/anonymous")
+async def create_anonymous_user(
+    client_id: str = Body(..., embed=True),
+    nickname: Optional[str] = Body(default=None, embed=True),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_or_create_user_by_client_id(client_id=client_id, db=db, nickname=nickname)
+    return {
+        "id": user.id,
+        "client_id": client_id,
+        "nickname": user.nickname,
+        "avatar": user.avatar,
+        "analysis_count": user.analysis_count,
+        "chat_count": user.chat_count,
+        "created_at": user.created_at,
+    }
+
+
+@router.post("/login")
+async def login(
+    openid: str,
+    nickname: Optional[str] = None,
+    avatar: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(UserDB).where(UserDB.openid == openid)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        user = UserDB(
+            id=str(uuid.uuid4()),
+            openid=openid,
+            nickname=nickname or "用户",
+            avatar=avatar
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    return {
+        "id": user.id,
+        "nickname": user.nickname,
+        "avatar": user.avatar,
+        "analysis_count": user.analysis_count,
+        "chat_count": user.chat_count
+    }
+
+
+@router.get("/me")
+async def get_me(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    favorite_count_query = select(func.count()).select_from(FavoriteDB).where(FavoriteDB.user_id == current_user.id)
+    analysis_count_query = select(func.count()).select_from(AnalysisDB).where(AnalysisDB.user_id == current_user.id)
+    comparison_count_query = select(func.count()).select_from(ComparisonDB).where(ComparisonDB.user_id == current_user.id)
+    history_count_query = select(func.count()).select_from(ChatSessionDB).where(ChatSessionDB.user_id == current_user.id)
+
+    favorite_count = (await db.execute(favorite_count_query)).scalar() or 0
+    analysis_count = (await db.execute(analysis_count_query)).scalar() or 0
+    comparison_count = (await db.execute(comparison_count_query)).scalar() or 0
+    history_count = (await db.execute(history_count_query)).scalar() or 0
+
+    return {
+        "id": current_user.id,
+        "nickname": current_user.nickname,
+        "avatar": current_user.avatar,
+        "analysis_count": analysis_count,
+        "chat_count": history_count,
+        "favorite_count": favorite_count,
+        "comparison_count": comparison_count,
+        "created_at": current_user.created_at,
+    }
+
+
+@router.get("/profile/{user_id}")
+async def get_profile(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问该用户资料")
+
+    user = await db.get(UserDB, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户未找到")
+
+    return {
+        "id": user.id,
+        "nickname": user.nickname,
+        "avatar": user.avatar,
+        "analysis_count": user.analysis_count,
+        "chat_count": user.chat_count,
+        "created_at": user.created_at
+    }
+
+
+@router.get("/history")
+async def get_history(
+    limit: int = Query(50, ge=1, le=200),
+    item_type: Optional[str] = Query(None, alias="type"),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    chat_query = (
+        select(ChatSessionDB)
+        .where(ChatSessionDB.user_id == current_user.id)
+        .order_by(desc(ChatSessionDB.updated_at))
+        .limit(limit)
+    )
+    analysis_query = (
+        select(AnalysisDB)
+        .where(AnalysisDB.user_id == current_user.id)
+        .order_by(desc(AnalysisDB.created_at))
+        .limit(limit)
+    )
+    comparison_query = (
+        select(ComparisonDB)
+        .where(ComparisonDB.user_id == current_user.id)
+        .order_by(desc(ComparisonDB.created_at))
+        .limit(limit)
+    )
+
+    sessions = (await db.execute(chat_query)).scalars().all()
+    analyses = (await db.execute(analysis_query)).scalars().all()
+    comparisons = (await db.execute(comparison_query)).scalars().all()
+
+    items = []
+    if item_type in (None, "chat"):
+        items.extend([
+            {
+                "id": item.id,
+                "type": "chat",
+                "title": item.title,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
+            for item in sessions
+        ])
+    if item_type in (None, "analysis"):
+        items.extend([
+            {
+                "id": item.id,
+                "type": "analysis",
+                "title": item.document_name,
+                "status": item.status,
+                "created_at": item.created_at,
+                "updated_at": item.completed_at or item.created_at,
+                "overall_risk_level": compute_overall_risk_level(item.risks or []),
+                "overall_score": compute_overall_score(item.risks or []),
+            }
+            for item in analyses
+        ])
+    if item_type in (None, "comparison"):
+        items.extend([
+            {
+                "id": item.id,
+                "type": "comparison",
+                "title": f"{item.document_a} vs {item.document_b}",
+                "document_a": item.document_a,
+                "document_b": item.document_b,
+                "status": item.status,
+                "created_at": item.created_at,
+                "updated_at": item.completed_at or item.created_at,
+            }
+            for item in comparisons
+        ])
+
+    items.sort(key=lambda x: x.get("updated_at") or x.get("created_at"), reverse=True)
+    return items[:limit]
+
+
+@router.post("/favorites")
+async def add_favorite(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    item_type = payload.get("item_type")
+    item_id = payload.get("item_id")
+    title = payload.get("title")
+    summary = payload.get("summary")
+
+    if not item_type or not item_id:
+        raise HTTPException(status_code=400, detail="缺少收藏参数")
+
+    query = select(FavoriteDB).where(
+        FavoriteDB.user_id == current_user.id,
+        FavoriteDB.item_type == item_type,
+        FavoriteDB.item_id == item_id
+    )
+    result = await db.execute(query)
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="已收藏")
+
+    favorite = FavoriteDB(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        item_type=item_type,
+        item_id=item_id,
+        title=title,
+        summary=summary
+    )
+    db.add(favorite)
+    await db.commit()
+
+    return {"id": favorite.id, "message": "收藏成功", "title": title}
+
+
+@router.delete("/favorites/{favorite_id}")
+async def remove_favorite(
+    favorite_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    favorite = await db.get(FavoriteDB, favorite_id)
+    if not favorite or favorite.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="收藏未找到")
+
+    await db.delete(favorite)
+    await db.commit()
+
+    return {"message": "取消收藏"}
+
+
+@router.get("/favorites")
+async def list_favorites(
+    item_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    query = select(FavoriteDB).where(FavoriteDB.user_id == current_user.id).order_by(desc(FavoriteDB.created_at))
+    if item_type:
+        query = query.where(FavoriteDB.item_type == item_type)
+
+    result = await db.execute(query)
+    favorites = result.scalars().all()
+
+    return [{
+        "id": f.id,
+        "item_type": f.item_type,
+        "item_id": f.item_id,
+        "title": f.title,
+        "summary": f.summary,
+        "created_at": f.created_at
+    } for f in favorites]
+
+
+@router.get("/workspace")
+async def get_workspace_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    analyses_query = (
+        select(AnalysisDB)
+        .where(AnalysisDB.user_id == current_user.id)
+        .order_by(desc(AnalysisDB.created_at))
+        .limit(5)
+    )
+    sessions_query = (
+        select(ChatSessionDB)
+        .where(ChatSessionDB.user_id == current_user.id)
+        .order_by(desc(ChatSessionDB.updated_at))
+        .limit(5)
+    )
+    comparisons_query = (
+        select(ComparisonDB)
+        .where(ComparisonDB.user_id == current_user.id)
+        .order_by(desc(ComparisonDB.created_at))
+        .limit(5)
+    )
+    favorites_query = (
+        select(FavoriteDB)
+        .where(FavoriteDB.user_id == current_user.id)
+        .order_by(desc(FavoriteDB.created_at))
+        .limit(10)
+    )
+
+    analyses = (await db.execute(analyses_query)).scalars().all()
+    sessions = (await db.execute(sessions_query)).scalars().all()
+    comparisons = (await db.execute(comparisons_query)).scalars().all()
+    favorites = (await db.execute(favorites_query)).scalars().all()
+
+    analysis_count = (await db.execute(select(func.count()).select_from(AnalysisDB).where(AnalysisDB.user_id == current_user.id))).scalar() or 0
+    comparison_count = (await db.execute(select(func.count()).select_from(ComparisonDB).where(ComparisonDB.user_id == current_user.id))).scalar() or 0
+    chat_count = (await db.execute(select(func.count()).select_from(ChatSessionDB).where(ChatSessionDB.user_id == current_user.id))).scalar() or 0
+    favorite_count = (await db.execute(select(func.count()).select_from(FavoriteDB).where(FavoriteDB.user_id == current_user.id))).scalar() or 0
+
+    return {
+        "stats": {
+            "analysis_count": analysis_count,
+            "chat_count": chat_count,
+            "comparison_count": comparison_count,
+            "favorite_count": favorite_count,
+        },
+        "recent_analyses": [
+            {
+                "id": item.id,
+                "document_name": item.document_name,
+                "status": item.status,
+                "summary": item.summary,
+                "created_at": item.created_at,
+                "completed_at": item.completed_at,
+            }
+            for item in analyses
+        ],
+        "recent_sessions": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "updated_at": item.updated_at,
+                "created_at": item.created_at,
+            }
+            for item in sessions
+        ],
+        "recent_comparisons": [
+            {
+                "id": item.id,
+                "document_a": item.document_a,
+                "document_b": item.document_b,
+                "summary": item.summary,
+                "created_at": item.created_at,
+            }
+            for item in comparisons
+        ],
+        "favorites": [
+            {
+                "id": item.id,
+                "item_type": item.item_type,
+                "item_id": item.item_id,
+                "title": item.title,
+                "summary": item.summary,
+                "created_at": item.created_at,
+            }
+            for item in favorites
+        ],
+    }
