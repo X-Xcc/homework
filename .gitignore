@@ -10,3 +10,23 @@ backend/.env
 backend/uploads/
 uploads/
 backend/tmp_ocr_*.png
+.worktrees/
+
+# 调试残留（.tmp_*.json / .tmp_*.ps1 / .tmp_uvicorn.log 等）
+.tmp_*
+
+# 前端依赖与构建产物
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Obsidian 自动生成的目录与空白画布
+.obsidian/
+未命名.base
+未命名.canvas
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
