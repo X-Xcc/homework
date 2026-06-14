@@ -5,12 +5,20 @@
 *.pyo
 *.pyd
 *.db
+*.db-journal
 *.sqlite3
 backend/.env
 backend/uploads/
 uploads/
 backend/tmp_ocr_*.png
 .worktrees/
+
+# 测试 / 覆盖率 / lint 缓存
+.coverage
+htmlcov/
+.ruff_cache/
+backend/.pytest_cache/
+backend/.ruff_cache/
 
 # 调试残留（.tmp_*.json / .tmp_*.ps1 / .tmp_uvicorn.log 等）
 .tmp_*
