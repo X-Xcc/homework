@@ -13,16 +13,34 @@ Base = declarative_base()
 def generate_id():
     return str(uuid.uuid4())
 
+class UserRole(str):
+    USER = "user"
+    ADMIN = "admin"
+
+ROLE_USER = "user"
+ROLE_ADMIN = "admin"
+
+class UserStatus:
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
 class UserDB(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=generate_id)
-    openid = Column(String, unique=True, index=True)
+    openid = Column(String, unique=True, index=True, nullable=True)
+    username = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, unique=True, index=True, nullable=True)
+    password_hash = Column(String, nullable=True)
     nickname = Column(String)
     avatar = Column(String)
     phone = Column(String)
+    role = Column(String, default=ROLE_USER, nullable=False)
+    status = Column(String, default=UserStatus.ACTIVE, nullable=False)
     analysis_count = Column(Integer, default=0)
     chat_count = Column(Integer, default=0)
+    last_login_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -94,10 +112,81 @@ async def ensure_legacy_schema(conn):
     if "completed_at" not in comparison_columns:
         await conn.execute(text("ALTER TABLE comparisons ADD COLUMN completed_at DATETIME"))
 
+    favorite_info_result = await conn.execute(text("PRAGMA table_info(favorites)"))
+    favorite_columns = {row[1] for row in favorite_info_result.fetchall()}
+
+    if favorite_columns and "title" not in favorite_columns:
+        await conn.execute(text("ALTER TABLE favorites ADD COLUMN title VARCHAR"))
+    if favorite_columns and "summary" not in favorite_columns:
+        await conn.execute(text("ALTER TABLE favorites ADD COLUMN summary TEXT"))
+
+    user_info_result = await conn.execute(text("PRAGMA table_info(users)"))
+    user_columns = {row[1] for row in user_info_result.fetchall()}
+
+    if "username" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR"))
+    if "email" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR"))
+    if "password_hash" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
+    if "role" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user'"))
+    if "status" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN status VARCHAR DEFAULT 'active'"))
+    if "last_login_at" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at DATETIME"))
+
+    await conn.execute(text(
+        "UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"
+    ))
+    await conn.execute(text(
+        "UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''"
+    ))
+
+    try:
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users(username)"))
+    except Exception:
+        pass
+    try:
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users(email)"))
+    except Exception:
+        pass
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await ensure_legacy_schema(conn)
+    await seed_default_admin()
+
+
+async def seed_default_admin() -> None:
+    from app.core.security import hash_password  # local import to avoid cycle
+    from sqlalchemy import select
+
+    admin_username = settings.DEFAULT_ADMIN_USERNAME
+    admin_password = settings.DEFAULT_ADMIN_PASSWORD
+    if not admin_username or not admin_password:
+        return
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(UserDB).where(UserDB.username == admin_username)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            return
+
+        admin = UserDB(
+            id=str(uuid.uuid4()),
+            username=admin_username,
+            email=settings.DEFAULT_ADMIN_EMAIL or None,
+            password_hash=hash_password(admin_password),
+            nickname=settings.DEFAULT_ADMIN_NICKNAME or "系统管理员",
+            role=ROLE_ADMIN,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(admin)
+        await session.commit()
 
 async def get_db():
     async with async_session() as session:
