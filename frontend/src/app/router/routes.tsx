@@ -7,6 +7,8 @@ import { LoginPage } from '@/pages/user/LoginPage';
 import { RegisterPage } from '@/pages/user/RegisterPage';
 import { DashboardPage } from '@/pages/user/DashboardPage';
 import { MaterialDetailPage } from '@/pages/user/MaterialDetailPage';
+import { AnalysisDetailPage } from '@/pages/user/AnalysisDetailPage';
+import { ComparisonDetailPage } from '@/pages/user/ComparisonDetailPage';
 import { CaseWorkspacePage } from '@/pages/user/CaseWorkspacePage';
 import { ContractAnalyzePage } from '@/pages/user/ContractAnalyzePage';
 import { ContractComparePage } from '@/pages/user/ContractComparePage';
@@ -77,6 +79,8 @@ export const router = createBrowserRouter([
           { path: '/cases/:caseId/workspace', element: <CaseWorkspacePage /> },
           { path: '/contracts/analyze', element: <ContractAnalyzePage /> },
           { path: '/contracts/compare', element: <ContractComparePage /> },
+          { path: '/analyses/:analysisId', element: <AnalysisDetailPage /> },
+          { path: '/comparisons/:comparisonId', element: <ComparisonDetailPage /> },
           { path: '/search', element: <LawSearchPage /> },
           { path: '/chat', element: <ChatAssistantPage /> },
           { path: '/history', element: <HistoryPage /> },

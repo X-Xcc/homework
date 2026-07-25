@@ -7,7 +7,7 @@ import { ApiError } from '@/shared/api/client';
 type LocationState = { from?: string } | null;
 
 export function LoginPage() {
-  const { login, isAuthenticated, isAdmin } = useAuth();
+  const { login,  isAuthenticated, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [account, setAccount] = useState('');
@@ -83,6 +83,14 @@ export function LoginPage() {
         <Link to="/register" className="font-medium text-brand-600 hover:underline">
           立即注册
         </Link>
+      </div>
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-slate-200" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-white px-3 text-slate-400">或</span>
+        </div>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
         默认管理员账号 <code className="font-mono">admin / Admin@12345</code>，首次启动后请尽快修改密码。

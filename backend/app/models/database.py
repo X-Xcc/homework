@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, JSON, Boolean, text
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, JSON, Boolean
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
@@ -102,60 +102,9 @@ class FavoriteDB(Base):
     summary = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-async def ensure_legacy_schema(conn):
-    table_info_result = await conn.execute(text("PRAGMA table_info(comparisons)"))
-    comparison_columns = {row[1] for row in table_info_result.fetchall()}
-
-    if "status" not in comparison_columns:
-        await conn.execute(text("ALTER TABLE comparisons ADD COLUMN status VARCHAR DEFAULT 'pending'"))
-
-    if "completed_at" not in comparison_columns:
-        await conn.execute(text("ALTER TABLE comparisons ADD COLUMN completed_at DATETIME"))
-
-    favorite_info_result = await conn.execute(text("PRAGMA table_info(favorites)"))
-    favorite_columns = {row[1] for row in favorite_info_result.fetchall()}
-
-    if favorite_columns and "title" not in favorite_columns:
-        await conn.execute(text("ALTER TABLE favorites ADD COLUMN title VARCHAR"))
-    if favorite_columns and "summary" not in favorite_columns:
-        await conn.execute(text("ALTER TABLE favorites ADD COLUMN summary TEXT"))
-
-    user_info_result = await conn.execute(text("PRAGMA table_info(users)"))
-    user_columns = {row[1] for row in user_info_result.fetchall()}
-
-    if "username" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR"))
-    if "email" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR"))
-    if "password_hash" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
-    if "role" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user'"))
-    if "status" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN status VARCHAR DEFAULT 'active'"))
-    if "last_login_at" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at DATETIME"))
-
-    await conn.execute(text(
-        "UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"
-    ))
-    await conn.execute(text(
-        "UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''"
-    ))
-
-    try:
-        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users(username)"))
-    except Exception:
-        pass
-    try:
-        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users(email)"))
-    except Exception:
-        pass
-
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await ensure_legacy_schema(conn)
     await seed_default_admin()
 
 

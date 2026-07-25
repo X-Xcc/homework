@@ -72,6 +72,34 @@ export type AdminUserListResponse = {
   page_size: number;
 };
 
+
+export type AdminAnalysisItem = {
+  id: string;
+  document_name: string;
+  username?: string;
+  status: string;
+  overall_risk_level?: string;
+  created_at: string;
+};
+
+export type AdminComparisonItem = {
+  id: string;
+  document_a: string;
+  document_b: string;
+  username?: string;
+  status: string;
+  changes_count: number;
+  created_at: string;
+};
+
+export type AdminChatSessionItem = {
+  id: string;
+  title: string;
+  username?: string;
+  message_count: number;
+  updated_at: string;
+};
+
 export const adminApi = {
   listUsers(params: { page?: number; page_size?: number; keyword?: string; role?: string; status?: string } = {}) {
     const search = new URLSearchParams();
@@ -101,4 +129,26 @@ export const adminApi = {
       recent_24h_signups: number;
     }>('/api/admin/stats');
   },
+  listAnalyses(params: { page?: number; page_size?: number } = {}) {
+    const search = new URLSearchParams();
+    if (params.page) search.set('page', String(params.page));
+    if (params.page_size) search.set('page_size', String(params.page_size));
+    const query = search.toString();
+    return apiRequest<AdminAnalysisItem[]>(`/api/admin/analyses${query ? '?' + query : ''}`);
+  },
+  listComparisons(params: { page?: number; page_size?: number } = {}) {
+    const search = new URLSearchParams();
+    if (params.page) search.set('page', String(params.page));
+    if (params.page_size) search.set('page_size', String(params.page_size));
+    const query = search.toString();
+    return apiRequest<AdminComparisonItem[]>(`/api/admin/comparisons${query ? '?' + query : ''}`);
+  },
+  listChatSessions(params: { page?: number; page_size?: number } = {}) {
+    const search = new URLSearchParams();
+    if (params.page) search.set('page', String(params.page));
+    if (params.page_size) search.set('page_size', String(params.page_size));
+    const query = search.toString();
+    return apiRequest<AdminChatSessionItem[]>(`/api/admin/chat-sessions${query ? '?' + query : ''}`);
+  },
+
 };

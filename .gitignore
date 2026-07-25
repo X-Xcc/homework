@@ -12,6 +12,9 @@ backend/uploads/
 uploads/
 backend/tmp_ocr_*.png
 .worktrees/
+.smart-env/
+copilot/
+data/vector_db/
 
 # 测试 / 覆盖率 / lint 缓存
 .coverage

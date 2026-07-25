@@ -9,6 +9,7 @@ import json
 from app.core.ai_analyzer import ai_analyzer
 from app.models.database import get_db, ChatSessionDB, ChatMessageDB, UserDB
 from app.api.deps import get_current_user
+from app.core.rate_limit import ai_rate_limit
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -20,7 +21,7 @@ async def create_session(
 ):
     try:
         body = await request.json()
-    except:
+    except Exception:
         body = {}
 
     session_id = str(uuid.uuid4())
@@ -96,6 +97,7 @@ async def send_message(
     session_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(ai_rate_limit),
     current_user: UserDB = Depends(get_current_user),
 ):
     session = await db.get(ChatSessionDB, session_id)
@@ -104,7 +106,7 @@ async def send_message(
 
     try:
         body = await request.json()
-    except:
+    except Exception:
         body = {}
 
     role = body.get("role", "user")
@@ -154,6 +156,7 @@ async def send_message_stream(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
+    _rate: None = Depends(ai_rate_limit),
 ):
     session = await db.get(ChatSessionDB, session_id)
     if not session or session.user_id != current_user.id:
@@ -161,7 +164,7 @@ async def send_message_stream(
 
     try:
         body = await request.json()
-    except:
+    except Exception:
         body = {}
 
     role = body.get("role", "user")

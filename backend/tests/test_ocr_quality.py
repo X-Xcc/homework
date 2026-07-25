@@ -51,7 +51,7 @@ class GarbledStubOcrEngine(OcrEngine):
         return True
 
     def extract_text(self, image):
-        return OcrResult(text="�� �� �� :_____, �� �� �� �� �� ��", engine=self.engine_name)
+        return OcrResult(text="� � � :_____, � � � � � �", engine=self.engine_name)
 
 
 
@@ -79,7 +79,7 @@ def test_quality_checker_rejects_garbled_text(tmp_path):
 
 
 def test_quality_checker_rejects_encoding_garbled_text():
-    assessment = OcrQualityChecker().assess("�� �� �� :_____, �� �� �� �� �� ��")
+    assessment = OcrQualityChecker().assess("� � � :_____, � � � � � �")
     assert not assessment.passed
     assert "encoding_garbled_text" in assessment.reasons or "replacement_char_noise" in assessment.reasons
 

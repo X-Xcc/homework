@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Body, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field
@@ -27,31 +27,12 @@ from app.models.database import (
     get_db,
 )
 from app.api.deps import get_current_user
+from app.core.risk import compute_overall_risk_level, compute_overall_score
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_\-.]{3,32}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-def compute_overall_risk_level(risks):
-    if any((risk or {}).get("level") == "high" for risk in risks or []):
-        return "high"
-    if any((risk or {}).get("level") == "medium" for risk in risks or []):
-        return "medium"
-    return "low"
-
-
-def compute_overall_score(risks):
-    penalty = 0
-    for risk in risks or []:
-        level = (risk or {}).get("level")
-        if level == "high":
-            penalty += 25
-        elif level == "medium":
-            penalty += 12
-        else:
-            penalty += 5
-    return max(20, 100 - penalty)
 
 
 router = APIRouter(prefix="/api/user", tags=["user"])
@@ -202,7 +183,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     if user.status and user.status != UserStatus.ACTIVE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已停用")
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(user)
     return _build_token_pair(user)
@@ -280,9 +261,28 @@ async def create_anonymous_user(
     db: AsyncSession = Depends(get_db),
 ):
     """保留匿名入口用于演示/测试，不参与正式业务链路。"""
-    from app.api.deps import get_or_create_user_by_client_id  # 兼容旧实现
+    openid = f"anon:{client_id}"
 
-    user = await get_or_create_user_by_client_id(client_id=client_id, db=db, nickname=nickname)
+    query = select(UserDB).where(UserDB.openid == openid)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        user = UserDB(
+            id=str(uuid.uuid4()),
+            openid=openid,
+            nickname=nickname or f"匿名用户-{client_id[:6]}",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    from app.core.security import create_access_token, create_refresh_token
+    from app.config import settings
+
+    access_token = create_access_token(user.id, user.role or "user")
+    refresh_token = create_refresh_token(user.id, user.role or "user")
+
     return {
         "id": user.id,
         "client_id": client_id,
@@ -293,6 +293,10 @@ async def create_anonymous_user(
         "analysis_count": user.analysis_count,
         "chat_count": user.chat_count,
         "created_at": user.created_at,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_TTL_MIN * 60,
     }
 
 
@@ -472,6 +476,81 @@ async def list_favorites(
     } for f in favorites]
 
 
+def _build_suggested_actions(
+    analysis_count: int,
+    comparison_count: int,
+    chat_count: int,
+    favorite_count: int,
+    recent_analyses: list,
+    recent_sessions: list,
+) -> list[dict]:
+    """根据用户当前数据生成引导性操作建议。"""
+    actions: list[dict] = []
+
+    if analysis_count == 0:
+        actions.append({
+            "id": "first-analysis",
+            "title": "上传第一份合同",
+            "description": "上传合同文档，AI 将自动识别风险条款并给出修改建议。",
+            "to": "/contracts/analyze",
+            "icon": "file-search",
+        })
+
+    if comparison_count == 0 and analysis_count > 0:
+        actions.append({
+            "id": "try-compare",
+            "title": "试试合同对比",
+            "description": "上传两份合同，AI 自动识别版本差异。",
+            "to": "/contracts/compare",
+            "icon": "git-compare",
+        })
+
+    if chat_count == 0:
+        actions.append({
+            "id": "try-chat",
+            "title": "开始法律问答",
+            "description": "向 AI 法律顾问提问，获取专业解答。",
+            "to": "/chat",
+            "icon": "message-circle",
+        })
+
+    # 如果有高风险分析但没有收藏，提示收藏
+    has_high_risk = any(
+        compute_overall_risk_level((a.risks if a else []) or []) == "high"
+        for a in recent_analyses
+    )
+    if has_high_risk and favorite_count == 0:
+        actions.append({
+            "id": "save-findings",
+            "title": "收藏重要发现",
+            "description": "将高风险条款或法条收藏，方便后续查阅。",
+            "to": "/favorites",
+            "icon": "bookmark",
+        })
+
+    # 如果有最近会话但没有继续，提示继续
+    if recent_sessions:
+        latest = recent_sessions[0]
+        actions.append({
+            "id": "continue-chat",
+            "title": f"继续: {latest.title or '上次对话'}",
+            "description": "回到上次的法律问答会话继续讨论。",
+            "to": "/chat",
+            "icon": "arrow-right",
+        })
+
+    # 如果什么都有了，推荐搜索法条
+    if not actions:
+        actions.append({
+            "id": "search-law",
+            "title": "检索相关法条",
+            "description": "基于民法典、刑法检索相关法律条文。",
+            "to": "/search",
+            "icon": "search",
+        })
+
+    return actions[:4]
+
 @router.get("/workspace")
 async def get_workspace_summary(
     db: AsyncSession = Depends(get_db),
@@ -527,6 +606,8 @@ async def get_workspace_summary(
                 "summary": item.summary,
                 "created_at": item.created_at,
                 "completed_at": item.completed_at,
+                "overall_risk_level": compute_overall_risk_level(item.risks or []),
+                "overall_score": compute_overall_score(item.risks or []),
             }
             for item in analyses
         ],
@@ -560,4 +641,8 @@ async def get_workspace_summary(
             }
             for item in favorites
         ],
+        "suggested_actions": _build_suggested_actions(
+            analysis_count, comparison_count, chat_count, favorite_count,
+            analyses, sessions,
+        ),
     }

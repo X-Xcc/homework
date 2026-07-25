@@ -11,10 +11,10 @@ class Settings:
     APP_NAME: str = os.getenv("APP_NAME", "法律AI")
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
-    # MiMo API
-    MIMO_API_KEY: str = os.getenv("MIMO_API_KEY", "")
-    MIMO_API_URL: str = os.getenv("MIMO_API_URL", "https://token-plan-cn.xiaomimimo.com/v1/chat/completions")
-    MIMO_MODEL: str = os.getenv("MIMO_MODEL", "mimo-v2.5-pro")
+    # AI API
+    AI_API_KEY: str = os.getenv("AI_API_KEY", "")
+    AI_API_URL: str = os.getenv("AI_API_URL", "https://api.deepseek.com/v1/chat/completions")
+    AI_MODEL: str = os.getenv("AI_MODEL", "deepseek-v4-flash")
 
     # 数据库
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR}/legal_ai.db")

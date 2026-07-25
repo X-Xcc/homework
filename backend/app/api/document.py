@@ -1,5 +1,5 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+﻿from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
 import uuid
@@ -11,6 +11,7 @@ from app.core.document_service import document_parser
 from app.core.ai_analyzer import ai_analyzer
 from app.models.database import get_db, AnalysisDB, ComparisonDB, UserDB
 from app.api.deps import get_current_user
+from app.core.rate_limit import ai_rate_limit
 
 router = APIRouter(prefix="/api/document", tags=["document"])
 
@@ -40,6 +41,7 @@ def compute_overall_score(risks):
 async def analyze_document(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(ai_rate_limit),
     current_user: UserDB = Depends(get_current_user),
 ):
     file_id = str(uuid.uuid4())
@@ -102,6 +104,7 @@ async def analyze_document(
 async def analyze_document_stream(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(ai_rate_limit),
     current_user: UserDB = Depends(get_current_user),
 ):
     file_id = str(uuid.uuid4())
@@ -175,6 +178,7 @@ async def compare_documents(
     file_a: UploadFile = File(...),
     file_b: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(ai_rate_limit),
     current_user: UserDB = Depends(get_current_user),
 ):
     files = []
@@ -281,4 +285,35 @@ async def get_analysis(
         "completed_at": analysis.completed_at
     }
 
+
+from app.api.export_utils import ExportRequest, _generate_txt, _generate_docx, _generate_pdf
 import json
+
+@router.post("/export")
+async def export_report(
+    req: ExportRequest,
+    current_user: UserDB = Depends(get_current_user),
+):
+    fmt = req.format.lower()
+    if fmt not in ("txt", "docx", "pdf"):
+        raise HTTPException(status_code=400, detail=f"不支持的格式: {fmt}，仅支持 txt/docx/pdf")
+
+    generators = {
+        "txt": (_generate_txt, "text/plain; charset=utf-8", ".txt"),
+        "docx": (_generate_docx, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"),
+        "pdf": (_generate_pdf, "application/pdf", ".pdf"),
+    }
+    gen_fn, media_type, ext = generators[fmt]
+    buf = gen_fn(req)
+    from urllib.parse import quote
+    raw_filename = f"分析报告_{req.document_name or '未知文档'}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    safe_filename = quote(raw_filename)
+    content_disposition = f"attachment; filename*=UTF-8''{safe_filename}"
+
+    return Response(
+        content=buf.getvalue(),
+        media_type=media_type,
+        headers={"Content-Disposition": content_disposition}
+    )
+
+

@@ -49,7 +49,7 @@
 | chat | POST | `/api/chat/sessions` | 创建会话 | 是 | 依赖伪身份模型 |
 | chat | GET | `/api/chat/sessions` | 会话列表 | 是 | 依赖伪身份模型 |
 | chat | GET | `/api/chat/sessions/{id}` | 查看会话详情 | 是 | 依赖伪身份模型 |
-| chat | POST | `/api/chat/sessions/{id}/messages` | 发送消息 | 是 | 无速率限制、AI 异常直接暴���文本 |
+| chat | POST | `/api/chat/sessions/{id}/messages` | 发送消息 | 是 | 无速率限制、AI 异常直接露原始文本 |
 | chat | POST | `/api/chat/sessions/{id}/messages/stream` | 流式问答 | 是 | 流式异常处理较弱 |
 | chat | DELETE | `/api/chat/sessions/{id}` | 删除会话 | 否 | 依赖伪身份模型 |
 | user | POST | `/api/user/register` | 用户注册 | 是 | 第一版应支持自注册与唯一性校验 |
@@ -109,7 +109,7 @@
 - ORM：SQLAlchemy Async
 - 当前数据库：SQLite（默认）
 - 向量检索：ChromaDB + sentence-transformers
-- 文档解���：PyPDF2、pdfplumber、python-docx
+- 文档析：PyPDF2、pdfplumber、python-docx
 - OCR：PaddleOCR、PaddlePaddle、pytesseract、Pillow
 - AI 能力：MiMo API
 - 流式输出：sse-starlette

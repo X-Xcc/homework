@@ -1,6 +1,7 @@
 """管理后台 API：用户管理、统计等。全部走 require_admin 守卫。"""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
@@ -11,6 +12,7 @@ from app.api.deps import require_admin
 from app.core.security import hash_password
 from app.models.database import (
     AnalysisDB,
+    ChatMessageDB,
     ChatSessionDB,
     ComparisonDB,
     FavoriteDB,
@@ -188,8 +190,6 @@ async def admin_stats(
     db: AsyncSession = Depends(get_db),
     _admin: UserDB = Depends(require_admin),
 ):
-    from datetime import datetime, timedelta
-
     user_total = (await db.execute(select(func.count()).select_from(UserDB))).scalar() or 0
     user_active = (await db.execute(
         select(func.count()).select_from(UserDB).where(UserDB.status == UserStatus.ACTIVE)
@@ -202,7 +202,7 @@ async def admin_stats(
     chat_total = (await db.execute(select(func.count()).select_from(ChatSessionDB))).scalar() or 0
     favorite_total = (await db.execute(select(func.count()).select_from(FavoriteDB))).scalar() or 0
 
-    cutoff = datetime.utcnow() - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     recent_signups = (await db.execute(
         select(func.count()).select_from(UserDB).where(UserDB.created_at >= cutoff)
     )).scalar() or 0
@@ -217,3 +217,100 @@ async def admin_stats(
         favorite_total=favorite_total,
         recent_24h_signups=recent_signups,
     )
+
+
+
+# --- Admin resource listing endpoints ---
+
+@router.get("/analyses")
+async def list_analyses(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _admin: UserDB = Depends(require_admin),
+):
+    rows = (await db.execute(
+        select(AnalysisDB).order_by(desc(AnalysisDB.created_at))
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    result = []
+    for a in rows:
+        username = None
+        if a.user_id:
+            user = await db.get(UserDB, a.user_id)
+            if user:
+                username = user.username or user.nickname
+        result.append({
+            "id": a.id,
+            "document_name": a.document_name,
+            "username": username,
+            "status": a.status or "completed",
+            "overall_risk_level": (a.risks or {}).get("overall_risk_level") if isinstance(a.risks, dict) else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        })
+    return result
+
+
+@router.get("/comparisons")
+async def list_comparisons(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _admin: UserDB = Depends(require_admin),
+):
+    rows = (await db.execute(
+        select(ComparisonDB).order_by(desc(ComparisonDB.created_at))
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    result = []
+    for c in rows:
+        username = None
+        if c.user_id:
+            user = await db.get(UserDB, c.user_id)
+            if user:
+                username = user.username or user.nickname
+        result.append({
+            "id": c.id,
+            "document_a": c.document_a,
+            "document_b": c.document_b,
+            "username": username,
+            "status": c.status or "completed",
+            "changes_count": len(c.changes) if isinstance(c.changes, list) else 0,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return result
+
+
+@router.get("/chat-sessions")
+async def list_chat_sessions(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _admin: UserDB = Depends(require_admin),
+):
+    rows = (await db.execute(
+        select(ChatSessionDB).order_by(desc(ChatSessionDB.updated_at))
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    result = []
+    for s in rows:
+        username = None
+        if s.user_id:
+            user = await db.get(UserDB, s.user_id)
+            if user:
+                username = user.username or user.nickname
+        msg_count = (await db.execute(
+            select(func.count()).select_from(ChatMessageDB).where(ChatMessageDB.session_id == s.id)
+        )).scalar() or 0
+        result.append({
+            "id": s.id,
+            "title": s.title or "???",
+            "username": username,
+            "message_count": msg_count,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+        })
+    return result
+

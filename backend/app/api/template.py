@@ -6,13 +6,21 @@ from pathlib import Path
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
 TEMPLATES_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "templates.json"
+_templates_cache = None
+_templates_mtime = 0.0
 
 def load_templates():
+    global _templates_cache, _templates_mtime
     try:
+        current_mtime = TEMPLATES_PATH.stat().st_mtime
+        if _templates_cache is not None and current_mtime == _templates_mtime:
+            return _templates_cache
         with open(TEMPLATES_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
+            _templates_cache = json.load(f)
+        _templates_mtime = current_mtime
+        return _templates_cache
+    except Exception:
+        return _templates_cache or []
 
 @router.get("")
 async def list_templates(category: Optional[str] = None, keyword: Optional[str] = Query(None)):
