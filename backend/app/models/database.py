@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, JSON, Boolean, text
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, JSON, Boolean
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
@@ -13,16 +13,34 @@ Base = declarative_base()
 def generate_id():
     return str(uuid.uuid4())
 
+class UserRole(str):
+    USER = "user"
+    ADMIN = "admin"
+
+ROLE_USER = "user"
+ROLE_ADMIN = "admin"
+
+class UserStatus:
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
 class UserDB(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=generate_id)
-    openid = Column(String, unique=True, index=True)
+    openid = Column(String, unique=True, index=True, nullable=True)
+    username = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, unique=True, index=True, nullable=True)
+    password_hash = Column(String, nullable=True)
     nickname = Column(String)
     avatar = Column(String)
     phone = Column(String)
+    role = Column(String, default=ROLE_USER, nullable=False)
+    status = Column(String, default=UserStatus.ACTIVE, nullable=False)
     analysis_count = Column(Integer, default=0)
     chat_count = Column(Integer, default=0)
+    last_login_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -84,20 +102,40 @@ class FavoriteDB(Base):
     summary = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-async def ensure_legacy_schema(conn):
-    table_info_result = await conn.execute(text("PRAGMA table_info(comparisons)"))
-    comparison_columns = {row[1] for row in table_info_result.fetchall()}
-
-    if "status" not in comparison_columns:
-        await conn.execute(text("ALTER TABLE comparisons ADD COLUMN status VARCHAR DEFAULT 'pending'"))
-
-    if "completed_at" not in comparison_columns:
-        await conn.execute(text("ALTER TABLE comparisons ADD COLUMN completed_at DATETIME"))
-
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await ensure_legacy_schema(conn)
+    await seed_default_admin()
+
+
+async def seed_default_admin() -> None:
+    from app.core.security import hash_password  # local import to avoid cycle
+    from sqlalchemy import select
+
+    admin_username = settings.DEFAULT_ADMIN_USERNAME
+    admin_password = settings.DEFAULT_ADMIN_PASSWORD
+    if not admin_username or not admin_password:
+        return
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(UserDB).where(UserDB.username == admin_username)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            return
+
+        admin = UserDB(
+            id=str(uuid.uuid4()),
+            username=admin_username,
+            email=settings.DEFAULT_ADMIN_EMAIL or None,
+            password_hash=hash_password(admin_password),
+            nickname=settings.DEFAULT_ADMIN_NICKNAME or "系统管理员",
+            role=ROLE_ADMIN,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(admin)
+        await session.commit()
 
 async def get_db():
     async with async_session() as session:

@@ -1,0 +1,52 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+
+# Node
+frontend/node_modules/
+frontend/.vite/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.worktrees/
+
+# Obsidian
+.obsidian/
+未命名.*
+
+# Environment
+.env
+*.db
+*.db-journal
+
+# Uploads & data (mounted as volumes)
+uploads/
+backend/uploads/
+data/vector_db/
+
+# Docs
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+
+# Temp
+.tmp_*
+*.tmp

@@ -11,10 +11,10 @@ class Settings:
     APP_NAME: str = os.getenv("APP_NAME", "法律AI")
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
-    # MiMo API
-    MIMO_API_KEY: str = os.getenv("MIMO_API_KEY", "")
-    MIMO_API_URL: str = os.getenv("MIMO_API_URL", "https://token-plan-cn.xiaomimimo.com/v1/chat/completions")
-    MIMO_MODEL: str = os.getenv("MIMO_MODEL", "mimo-v2.5-pro")
+    # AI API
+    AI_API_KEY: str = os.getenv("AI_API_KEY", "")
+    AI_API_URL: str = os.getenv("AI_API_URL", "https://api.deepseek.com/v1/chat/completions")
+    AI_MODEL: str = os.getenv("AI_MODEL", "deepseek-v4-flash")
 
     # 数据库
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR}/legal_ai.db")
@@ -47,6 +47,22 @@ class Settings:
     # 法条数据路径
     CRIMINAL_LAW_PATH: str = str(BASE_DIR / "data" / "criminal_law.json")
     CIVIL_LAW_PATH: str = str(BASE_DIR / "data" / "civil_law.json")
+
+    # 鉴权与安全
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production-please")
+    JWT_ALG: str = os.getenv("JWT_ALG", "HS256")
+    ACCESS_TOKEN_TTL_MIN: int = int(os.getenv("ACCESS_TOKEN_TTL_MIN", "60"))
+    REFRESH_TOKEN_TTL_DAYS: int = int(os.getenv("REFRESH_TOKEN_TTL_DAYS", "14"))
+    CORS_ALLOW_ORIGINS: str = os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
+    )
+
+    # 默认管理员种子
+    DEFAULT_ADMIN_USERNAME: str = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+    DEFAULT_ADMIN_PASSWORD: str = os.getenv("DEFAULT_ADMIN_PASSWORD", "Admin@12345")
+    DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "")
+    DEFAULT_ADMIN_NICKNAME: str = os.getenv("DEFAULT_ADMIN_NICKNAME", "系统管理员")
 
 settings = Settings()
 

@@ -5,9 +5,9 @@ from app.config import settings
 
 class AIAnalyzer:
     def __init__(self):
-        self.api_key = settings.MIMO_API_KEY
-        self.api_url = settings.MIMO_API_URL
-        self.model = settings.MIMO_MODEL
+        self.api_key = settings.AI_API_KEY
+        self.api_url = settings.AI_API_URL
+        self.model = settings.AI_MODEL
 
     def _get_headers(self):
         return {
@@ -214,7 +214,7 @@ type只能是：modify（修改）、add（新增）、delete（删除）
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0]
             return json.loads(content.strip())
-        except:
+        except Exception:
             return {"risks": [], "summary": content}
 
 ai_analyzer = AIAnalyzer()
